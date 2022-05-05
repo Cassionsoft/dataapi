@@ -1,15 +1,15 @@
 from ast import List
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
-from db.question import create_question, get_questions_by_form, get_questions_without_uid_by_form_id, update_question_uid
-from db.form import retrieveForm
+from ..db.question import create_question, get_questions_by_form, get_questions_without_uid_by_form_id, update_question_uid
+from ..db.form import retrieveForm
 import pandas as pd
 from starlette.responses import StreamingResponse
-from models.question import UpdateQuestions, Questions
-from core.config import settings
+from ..models.question import UpdateQuestions, Questions
+from ..core.config import settings
 import io
 import requests
-from dependencies import get_current_user_from_token
+from ..dependencies import get_current_user_from_token
 
 router = APIRouter(
     prefix="/form/questions",
@@ -151,10 +151,11 @@ async def sync_form_questions(form_type: str, form_name: str):
             __response ={}
             if not df_questions_api.empty:
                 # filter questions from the api that are for this form
-                df_questions_api["form_type_name"] = df_questions_api["code"].apply(lambda x: x.split("_")[0]+"_"+x.split("_")[1])
-                df_questions_api = df_questions_api[df_questions_api["form_type_name"] == form_type+"_"+form_name]
+                # df_questions_api["form_type_name"] = df_questions_api["code"].apply(lambda x: x.split("_")[0]+"_"+x.split("_")[1])
+                # df_questions_api = df_questions_api[df_questions_api["form_type_name"] == form_type+"_"+form_name]
                 df_questions_api = df_questions_api[__api_columns]                    # Join the two dataframes
                 df_questions_join = pd.merge(df_questions_db,df_questions_api,on="code",how="left", suffixes=(None,"_api"))
+                print(df_questions_join.head())
                 # Get the questions that are in the db without uid
                 if "uid" in df_questions_db.columns:
                     df_questions_db_without_uid = df_questions_join[df_questions_join["uid_api"].isna()]
@@ -165,12 +166,14 @@ async def sync_form_questions(form_type: str, form_name: str):
                 df_questions_db_without_uid_but_not_in_api = df_questions_db_without_uid[df_questions_db_without_uid["description_api"].isnull()]
 
                 if not df_questions_db_without_uid_but_is_in_api.empty:
+                    print("There are question to update in the db")
                     if "uid" in df_questions_db.columns:
                         df_questions_db_without_uid_but_is_in_api["uid"]=df_questions_db_without_uid_but_is_in_api["uid_api"]
                     rows_to_update_uid = df_questions_db_without_uid_but_is_in_api.to_dict(orient="records")
                     for _row in  rows_to_update_uid:
+                        print("row updated  ", _row)
                         await update_question_uid(_row)
-                    __response["rows_to_update_uid"] = df_questions_db_without_uid_but_is_in_api.to_dict(orient="records")
+                    __response["rows_to_update_uid"] = df_questions_db_without_uid_but_is_in_api[["code","description","uid"]].to_dict(orient="records")
                 if not df_questions_db_without_uid_but_not_in_api.empty:
                     ### Remove _id from the dataframe
 
